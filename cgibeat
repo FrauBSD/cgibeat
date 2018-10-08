@@ -1,0 +1,212 @@
+#!/bin/sh
+############################################################ IDENT(1)
+#
+# $Title: Dump JSON formatted CGI responses to local file for filebeat $
+# $Copyright: 2018 Devin Teske. All rights reserved. $
+# $FrauBSD: cgibeat/cgibeat 2018-10-08 13:00:02 -0700 freebsdfrau $
+#
+############################################################ CONFIGURATION
+
+INTERVAL=10 # seconds
+
+#
+# Concurrency
+# NB: MAX means run everything concurrently
+# NB: 0 means run as many concurrently as there are CPU threads
+#
+DEFAULT_CONCURRENCY=MAX
+
+#
+# Timeout for fetch/wget/curl
+#
+DEFAULT_WORKER_TIMEOUT=8s
+
+############################################################ GLOBALS
+
+pgm="${0##*/}" # Program basename
+
+#
+# Global exit status
+#
+SUCCESS=0
+FAILURE=1
+
+#
+# OS glue
+#
+: ${UNAME_s:=$( uname -s )}
+
+#
+# Command-line options
+#
+CONCURRENCY=$DEFAULT_CONCURRENCY		# -A | -P num
+DEBUG=						# -d
+WORKER_TIMEOUT="$DEFAULT_WORKER_TIMEOUT"	# -t time
+
+############################################################ FUNCTIONS
+
+die()
+{
+	local fmt
+	if [ $# -gt 0 ]; then
+		fmt="$1"
+		shift # fmt
+		printf "%s: $fmt\n" "$pgm" "$@" >&2
+	fi
+	exit $FAILURE
+}
+
+dprintf()
+{
+	[ "$DEBUG" ] || return
+	local fmt="$1"
+	shift 1
+	printf "\033[33mDEBUG:\033[m $fmt\n" "$@"
+}
+
+usage()
+{
+	local optfmt="\t%-10s %s\n"
+	exec >&2
+	printf "Usage: %s [-A | -P num] [-T time]\n" "$pgm"
+	printf "Options:\n"
+	printf "$optfmt" "-A" \
+		"Max concurrency. Run all checks at-once (default)."
+	printf "$optfmt" "-P num" "Set concurrency to num parallel threads."
+	printf "$optfmt" "-T time" \
+		"Worker timeout. Default \`$DEFAULT_WORKER_TIMEOUT'."
+	die
+}
+
+# eval "$( awk "$CONFIG_PARSER_AWK" "$CONFIG" )"
+#
+# awk(1) code for parsing $CONFIG
+#
+exec 9<<'EOF'
+################################################## BEGIN
+
+BEGIN {
+	delete urls
+	delete dedup
+	nurls = 0
+}
+
+################################################## MAIN
+
+/^[[:space:]]*(#|$)/ { next }
+!($1 in dedup) { urls[++nurls] = $1; dedup[$1] }
+
+################################################## END
+
+END {
+	for (n = 1; n <= nurls; n++) {
+		url = urls[n]
+		gsub(/'/, "&\\\\&&", url)
+		printf "url%u='%s'\n", n, url
+	}
+	print "nurls=" nurls
+}
+EOF
+CONFIG_PARSER_AWK=$( cat <&9 )
+
+# xargs sh -c 'eval "$WORKER"' sh
+#
+# xargs(1) code for running fetch/wget/curl
+#
+exec 9<<'EOF'
+var="$1"
+eval url=\"\$$var\"
+if type fetch > /dev/null; then
+	fetch -qo- "$url"
+elif type wget > /dev/null; then
+	wget -qO- "$url"
+elif type curl > /dev/null; then
+	curl -qfLo- "$url"
+fi 2> /dev/null
+EOF
+WORKER=$( cat <&9 )
+
+############################################################ MAIN
+
+#
+# Process command-line options
+#
+while getopts AdhP:T: flag; do
+	case "$flag" in
+	A) CONCURRENCY=MAX ;;
+	d) DEBUG=1 ;;
+	P) CONCURRENCY="$OPTARG" ;;
+	T) WORKER_TIMEOUT="$OPTARG" ;;
+	*) usage # NOTREACHED
+	esac
+done
+shift $(( $OPTIND - 1 ))
+
+#
+# Validate command-line options
+#
+case "$CONCURRENCY" in
+MAX) : ok ;;
+""|*[!0-9]*) die "Argument to \`-P' must be a number" ;;
+esac
+[ "$WORKER_TIMEOUT" ] || die "Time argument required for \`-t'"
+
+#
+# Exports
+#
+export DEBUG
+export WORKER
+
+#
+# Parse config
+#
+case "$UNAME_s" in
+*BSD) CONFIG="/usr/local/etc/$pgm.conf" ;;
+   *) CONFIG="/etc/$pgm.conf"
+esac
+nurls=0
+if [ ! -e "$CONFIG" ]; then
+	[ -e "$pgm.conf" ] && CONFIG="$pgm.conf"
+fi
+dprintf "CONFIG = %s" "$CONFIG"
+eval "$( awk "$CONFIG_PARSER_AWK" "$CONFIG" || echo false )" || exit
+
+#
+# Determine concurrency and export data
+#
+n=1
+while [ $n -le $nurls ]; do
+	eval dprintf \"url$n = %s\" \"\$url$n\"
+	eval export url$n
+	n=$(( $n + 1 ))
+done
+[ "$CONCURRENCY" = "MAX" ] && CONCURRENCY=$nurls
+
+#
+# Run concurrent requests to generate log data
+# NB: eval used to hide the worker code from pr_psargs
+#
+if [ "$DEBUG" ]; then
+	LOGFILE=/dev/stdout
+else
+	LOGFILE="/var/log/$pgm.log"
+fi
+dprintf "LOGFILE = %s" "$LOGFILE"
+dprintf "INTERVAL = %s (seconds)" "$INTERVAL"
+dprintf "WORKER_TIMEOUT = %s" "$WORKER_TIMEOUT"
+while :; do
+	n=1
+	while [ $n -le $nurls ]; do
+		echo url$n
+		n=$(( $n + 1 ))
+	done
+	sleep $INTERVAL
+done | xargs -Iline -P $CONCURRENCY timeout $WORKER_TIMEOUT \
+	sh -c 'set -- $*; eval "$WORKER"' sh line >> "$LOGFILE"
+
+# NOTREACHED
+exit $SUCCESS
+
+################################################################################
+# END
+################################################################################

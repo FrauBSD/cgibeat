@@ -1,0 +1,25 @@
+#!/bin/sh
+#
+# $FrauBSD: cgibeat/rc.d/cgibeat 2018-10-08 13:00:02 -0700 freebsdfrau $
+#
+
+# PROVIDE: cgibeat
+# REQUIRE: NETWORKING
+# KEYWORD: nojail shutdown
+
+. /etc/rc.subr
+
+name="cgibeat"
+rcvar="cgibeat_enable"
+
+: ${cgibeat_enable=NO}
+: ${cgibeat_flags=}
+
+command="/usr/local/sbin/${name}"
+command_interpreter="/bin/sh"
+command_args="&"
+pidfile="/var/run/$name.pid"
+required_files="/usr/local/etc/$name.conf"
+
+load_rc_config $name
+run_rc_command "$1"
