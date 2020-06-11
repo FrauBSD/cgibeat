@@ -2,8 +2,8 @@
 ############################################################ IDENT(1)
 #
 # $Title: Dump JSON formatted CGI responses to local file for filebeat $
-# $Copyright: 2018 Devin Teske. All rights reserved. $
-# $FrauBSD: cgibeat/cgibeat 2018-10-08 13:00:02 -0700 freebsdfrau $
+# $Copyright: 2018-2020 Devin Teske. All rights reserved. $
+# $FrauBSD: cgibeat/cgibeat 2020-06-10 17:14:31 -0700 freebsdfrau $
 #
 ############################################################ CONFIGURATION
 
@@ -22,6 +22,8 @@ DEFAULT_CONCURRENCY=MAX
 DEFAULT_WORKER_TIMEOUT=8s
 
 ############################################################ GLOBALS
+
+VERSION='$Version: 0.2 $'
 
 pgm="${0##*/}" # Program basename
 
@@ -68,13 +70,15 @@ usage()
 {
 	local optfmt="\t%-10s %s\n"
 	exec >&2
-	printf "Usage: %s [-A | -P num] [-T time]\n" "$pgm"
+	printf "Usage: %s [-hv] [-A | -P num] [-T time] [name]\n" "$pgm"
 	printf "Options:\n"
 	printf "$optfmt" "-A" \
 		"Max concurrency. Run all checks at-once (default)."
+	printf "$optfmt" "-h" "Print usage statement and exit."
 	printf "$optfmt" "-P num" "Set concurrency to num parallel threads."
 	printf "$optfmt" "-T time" \
 		"Worker timeout. Default \`$DEFAULT_WORKER_TIMEOUT'."
+	printf "$optfmt" "-v" "Print version information and exit."
 	die
 }
 
@@ -131,16 +135,24 @@ WORKER=$( cat <&9 )
 #
 # Process command-line options
 #
-while getopts AdhP:T: flag; do
+while getopts AdhP:T:v flag; do
 	case "$flag" in
 	A) CONCURRENCY=MAX ;;
 	d) DEBUG=1 ;;
 	P) CONCURRENCY="$OPTARG" ;;
 	T) WORKER_TIMEOUT="$OPTARG" ;;
+	v) VERSION="${VERSION#*: }"
+		echo "${VERSION% $}"
+		exit $SUCCESS ;;
 	*) usage # NOTREACHED
 	esac
 done
 shift $(( $OPTIND - 1 ))
+
+#
+# Program name override
+#
+[ ! "$1" ] || pgm="$1"
 
 #
 # Validate command-line options
