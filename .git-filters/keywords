@@ -14,7 +14,15 @@
 # List of keywords to expand/delete (separated by whitespace)
 #
 KEYWORDS="
+	Author
+	Branch
+	Date
 	FrauBSD
+	Header
+	Origin
+	Project
+	RCSfile
+	Source
 " # END-QUOTE
 
 #
@@ -24,7 +32,7 @@ KEYWORDS="
 _Author='$NAME'
 _Branch='$BRANCH'
 _Date='$DATE'
-_FrauBSD='${REPO#FrauBSD/}/$gitfile $DATE $NAME'
+_FrauBSD='${REPO#*FrauBSD/}/$gitfile $DATE $NAME'
 _Header='$gitfile $DATE $NAME'
 _Origin='$ORIGIN'
 _Project='$PROJECT'
@@ -197,7 +205,7 @@ done
 # END
 ################################################################################
 #
-# $Copyright: 2015-2018 The FrauBSD Project. All rights reserved. $
-# $FrauBSD: cgibeat/.git-filters/keywords 2018-10-08 12:44:48 -0700 freebsdfrau $
+# $Copyright: 2015-2020 The FrauBSD Project. All rights reserved. $
+# $FrauBSD: cgibeat/.git-filters/keywords 2020-06-10 17:15:28 -0700 freebsdfrau $
 #
 ################################################################################
